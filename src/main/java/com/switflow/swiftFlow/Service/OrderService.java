@@ -13,6 +13,7 @@ import com.switflow.swiftFlow.Request.OrderRequest;
 import com.switflow.swiftFlow.Response.OrderResponse;
 import com.switflow.swiftFlow.Response.OrderResponse.CustomerInfo;
 import com.switflow.swiftFlow.Response.OrderResponse.ProductInfo;
+import com.switflow.swiftFlow.Response.DepartmentOrderCountResponse;
 import com.switflow.swiftFlow.Exception.OrderNotFoundException;
 import com.switflow.swiftFlow.utility.Department;
 
@@ -276,5 +277,15 @@ public class OrderService {
             })
             .collect(Collectors.toList());
     }
-
+    
+    /**
+     * Get count of orders for each department
+     * @return List of department names and their order counts
+     */
+    public List<DepartmentOrderCountResponse> getOrderCountByDepartment() {
+        return Arrays.stream(Department.values())
+            .filter(dept -> dept != Department.ADMIN) // Exclude ADMIN department
+            .map(dept -> new DepartmentOrderCountResponse(dept.name(), orderRepository.findByDepartment(dept).size()))
+            .collect(Collectors.toList());
+    }
 }

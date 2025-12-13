@@ -36,6 +36,8 @@ public class Status {
 
     private String attachmentUrl;
 
+    private String percentage;
+
     @ManyToOne
     private Orders orders;
 

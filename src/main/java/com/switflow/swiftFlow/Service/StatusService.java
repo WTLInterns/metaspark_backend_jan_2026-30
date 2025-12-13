@@ -40,6 +40,8 @@ public class StatusService {
         // Set new status from the request
         status.setNewStatus(statusRequest.getNewStatus());
         status.setComment(statusRequest.getComment());
+        status.setPercentage(statusRequest.getPercentage());
+        
         // Set attachment URL from the request (this could be a direct URL or one obtained from Cloudinary)
         status.setAttachmentUrl(statusRequest.getAttachmentUrl());
         status.setOrders(order);
@@ -61,6 +63,7 @@ public class StatusService {
         // Return the attachment URL that was saved to the database
         response.setAttachmentUrl(savedStatus.getAttachmentUrl());
         response.setOrderId(savedStatus.getOrders().getOrderId());
+        response.setPercentage(savedStatus.getPercentage());
         response.setCreatedAt(savedStatus.getCreatedAt());
 
         return response;
@@ -88,6 +91,7 @@ public class StatusService {
                     response.setComment(status.getComment());
                     response.setAttachmentUrl(status.getAttachmentUrl());
                     response.setOrderId(status.getOrders().getOrderId());
+                    response.setPercentage(status.getPercentage());
                     response.setCreatedAt(status.getCreatedAt());
                     return response;
                 })

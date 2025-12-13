@@ -19,4 +19,6 @@ public class StatusRequest {
     private String attachmentUrl;
 
     private String createdAt;
+
+    private String percentage;
 }

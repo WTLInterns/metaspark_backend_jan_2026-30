@@ -18,6 +18,7 @@ public class StatusResponse {
 
     private String comment;
 
+    private String percentage;
     private String attachmentUrl;
 
     private long orderId;

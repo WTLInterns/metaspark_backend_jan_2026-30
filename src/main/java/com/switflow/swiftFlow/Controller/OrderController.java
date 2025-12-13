@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.switflow.swiftFlow.Service.OrderService;
 import com.switflow.swiftFlow.Request.OrderRequest;
 import com.switflow.swiftFlow.Response.OrderResponse;
+import com.switflow.swiftFlow.Response.DepartmentOrderCountResponse;
 
 @RequestMapping("/order")
 @RestController
@@ -50,6 +51,13 @@ public class OrderController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<OrderResponse>> getOrdersByDepartment(@PathVariable String department) {
         List<OrderResponse> response = orderService.getOrdersByDepartment(department);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/getCountByDepartment")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<DepartmentOrderCountResponse>> getOrderCountByDepartment() {
+        List<DepartmentOrderCountResponse> response = orderService.getOrderCountByDepartment();
         return ResponseEntity.ok(response);
     }
 }

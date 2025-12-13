@@ -1,16 +1,22 @@
 package com.switflow.swiftFlow.Controller;
 
-import com.switflow.swiftFlow.Request.StatusRequest;
-import com.switflow.swiftFlow.Response.StatusResponse;
-import com.switflow.swiftFlow.Service.CloudinaryService;
-import com.switflow.swiftFlow.Service.StatusService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
-
 import java.io.IOException;
 import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.switflow.swiftFlow.Request.StatusRequest;
+import com.switflow.swiftFlow.Response.StatusResponse;
+import com.switflow.swiftFlow.Service.StatusService;
 
 @RestController
 @RequestMapping("/status")
@@ -22,19 +28,10 @@ public class StatusController {
    
 
    
-    /**
-     * Create a status update for an order.
-     * This endpoint supports both direct URL attachments and file uploads.
-     * If a file is provided, it will be uploaded to Cloudinary.
-     * If no file is provided, the attachmentUrl from the request will be used directly.
-     * 
-     * @param orderId The ID of the order
-     * @param statusRequest The status update details
-     * @param attachment The file to upload (optional)
-     * @return The created status update
-     */
+   
     @PostMapping("/create/{orderId}")
-    public ResponseEntity<StatusResponse> createStatus(
+        @PreAuthorize("hasRole('ADMIN')")
+public ResponseEntity<StatusResponse> createStatus(
             @PathVariable long orderId, 
             @RequestPart("status") StatusRequest statusRequest,
             @RequestPart(value = "attachment", required = false) MultipartFile attachment) throws IOException {
@@ -52,6 +49,8 @@ public class StatusController {
     // }
 
     @GetMapping("/order/{orderId}")
+            @PreAuthorize("hasRole('ADMIN')")
+
     public ResponseEntity<List<StatusResponse>> getStatusesByOrderId(@PathVariable long orderId) {
         List<StatusResponse> responses = statusService.getStatusesByOrderId(orderId);
         return ResponseEntity.ok(responses);
