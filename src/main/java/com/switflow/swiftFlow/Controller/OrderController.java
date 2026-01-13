@@ -3,14 +3,17 @@ package com.switflow.swiftFlow.Controller;
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -18,6 +21,7 @@ import com.switflow.swiftFlow.Entity.User;
 import com.switflow.swiftFlow.Repo.UserRepository;
 import com.switflow.swiftFlow.Service.OrderService;
 import com.switflow.swiftFlow.Request.OrderRequest;
+import com.switflow.swiftFlow.Request.StageProgressUpdateRequest;
 import com.switflow.swiftFlow.Response.OrderResponse;
 import com.switflow.swiftFlow.Response.DepartmentOrderCountResponse;
 import com.switflow.swiftFlow.utility.Department;
@@ -81,6 +85,41 @@ public class OrderController {
     public ResponseEntity<OrderResponse> updateOrder(@PathVariable Long orderId, 
                                                      @RequestBody OrderRequest orderRequest) {
         OrderResponse response = orderService.updateOrder(orderId, orderRequest);
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{orderId}/stage-progress")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MACHINING','INSPECTION')")
+    public ResponseEntity<OrderResponse> updateStageProgress(
+            @PathVariable Long orderId,
+            @RequestBody StageProgressUpdateRequest request,
+            Authentication authentication) {
+
+        String username = authentication.getName();
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new RuntimeException("Authenticated user not found: " + username));
+
+        Department userDept = user.getDepartment();
+        String stage = request == null ? null : request.getStage();
+        String normalizedStage = stage == null ? "" : stage.trim().toUpperCase();
+
+        if (normalizedStage.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Stage is required");
+        }
+
+        if (userDept != Department.ADMIN) {
+            if (!userDept.name().equals(normalizedStage)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                        "Not allowed to update progress for stage: " + normalizedStage);
+            }
+        }
+
+        OrderResponse response;
+        try {
+            response = orderService.updateStageProgress(orderId, stage, request == null ? null : request.getProgress());
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, ex.getMessage());
+        }
         return ResponseEntity.ok(response);
     }
 

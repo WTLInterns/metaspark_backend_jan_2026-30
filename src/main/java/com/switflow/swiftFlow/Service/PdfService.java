@@ -14,7 +14,8 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import java.io.ByteArrayInputStream;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -25,7 +26,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -39,6 +39,8 @@ public class PdfService {
 
     @Autowired
     private StatusService statusService;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public List<PdfRow> analyzePdfRows(long orderId) throws IOException {
         String pdfUrl = findDesignPdfUrl(orderId);
@@ -168,6 +170,75 @@ public class PdfService {
         request.setAttachmentUrl(finalUrl);
 
         return statusService.createCheckboxStatus(request, orderId);
+    }
+
+    public StatusResponse saveRowSelectionWithoutTransitionRawComment(long orderId,
+                                                                      Department targetStatus,
+                                                                      String rawJsonComment,
+                                                                      String attachmentUrl) {
+        com.switflow.swiftFlow.Request.StatusRequest request = new com.switflow.swiftFlow.Request.StatusRequest();
+        Department effectiveStatus = (targetStatus != null) ? targetStatus : Department.PRODUCTION;
+        request.setNewStatus(effectiveStatus);
+        request.setComment(rawJsonComment);
+        request.setPercentage(null);
+
+        String finalUrl = (attachmentUrl != null && !attachmentUrl.isBlank())
+                ? attachmentUrl
+                : findDesignPdfUrl(orderId);
+        request.setAttachmentUrl(finalUrl);
+
+        return statusService.createCheckboxStatus(request, orderId);
+    }
+
+    public StatusResponse saveRowSelectionWithoutTransition(long orderId,
+                                                            List<String> selectedRowIds,
+                                                            Department targetStatus,
+                                                            String attachmentUrl,
+                                                            Long machineId,
+                                                            String machineName,
+                                                            List<Integer> numericSelectedRowIds,
+                                                            List<Map<String, Object>> selectedItems,
+                                                            Boolean threeCheckbox) {
+        try {
+            Map<String, Object> payload = new java.util.LinkedHashMap<>();
+
+            // Persist the payload in the requested contract shape.
+            // - selectedRowIds: kept for internal logic/reference
+            // - selectedItems: used ONLY for PDF rendering
+            if (numericSelectedRowIds != null) {
+                payload.put("selectedRowIds", numericSelectedRowIds);
+            } else {
+                payload.put("selectedRowIds", selectedRowIds);
+            }
+            payload.put("selectedItems", selectedItems);
+
+            if (threeCheckbox != null) {
+                payload.put("threeCheckbox", threeCheckbox);
+            }
+            if (machineId != null) {
+                payload.put("machineId", machineId);
+            }
+            if (machineName != null && !machineName.isBlank()) {
+                payload.put("machineName", machineName);
+            }
+
+            String jsonComment = objectMapper.writeValueAsString(payload);
+
+            com.switflow.swiftFlow.Request.StatusRequest request = new com.switflow.swiftFlow.Request.StatusRequest();
+            Department effectiveStatus = (targetStatus != null) ? targetStatus : Department.PRODUCTION;
+            request.setNewStatus(effectiveStatus);
+            request.setComment(jsonComment);
+            request.setPercentage(null);
+
+            String finalUrl = (attachmentUrl != null && !attachmentUrl.isBlank())
+                    ? attachmentUrl
+                    : findDesignPdfUrl(orderId);
+            request.setAttachmentUrl(finalUrl);
+
+            return statusService.createCheckboxStatus(request, orderId);
+        } catch (Exception e) {
+            return saveRowSelectionWithoutTransition(orderId, selectedRowIds, targetStatus, attachmentUrl, machineId, machineName);
+        }
     }
 
     private byte[] createSimplePdfFromRows(List<PdfRow> rows) throws IOException {

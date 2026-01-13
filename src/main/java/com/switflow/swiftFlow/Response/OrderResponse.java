@@ -29,6 +29,14 @@ public class OrderResponse {
 
     private Department department; // Add department field
 
+    private Integer designProgress;
+
+    private Integer productionProgress;
+
+    private Integer machiningProgress;
+
+    private Integer inspectionProgress;
+
     // Lists of customers and products
     private List<CustomerInfo> customers;
     private List<ProductInfo> products;

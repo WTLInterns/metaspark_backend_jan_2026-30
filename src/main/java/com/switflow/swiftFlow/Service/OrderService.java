@@ -37,6 +37,34 @@ public class OrderService {
     @Autowired
     private ProductRepository productRepository;
 
+    public OrderResponse updateStageProgress(Long orderId, String stage, Integer progress) {
+        Orders order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found with ID: " + orderId));
+
+        int safeProgress = progress == null ? 0 : Math.max(0, Math.min(100, progress));
+        String normalizedStage = stage == null ? "" : stage.trim().toUpperCase();
+
+        switch (normalizedStage) {
+            case "DESIGN":
+                order.setDesignProgress(safeProgress);
+                break;
+            case "PRODUCTION":
+                order.setProductionProgress(safeProgress);
+                break;
+            case "MACHINING":
+                order.setMachiningProgress(safeProgress);
+                break;
+            case "INSPECTION":
+                order.setInspectionProgress(safeProgress);
+                break;
+            default:
+                throw new IllegalArgumentException("Invalid stage: " + stage);
+        }
+
+        Orders updated = orderRepository.save(order);
+        return convertToOrderResponse(updated);
+    }
+
     public OrderResponse createOrder(OrderRequest orderRequest, int customerId, int productId) {
         Customer customer = customerRepository.findById(customerId)
                 .orElseThrow(() -> new OrderNotFoundException("Customer not found with ID: " + customerId));
@@ -106,6 +134,11 @@ public class OrderService {
         response.setMaterial(savedOrder.getMaterial());
         response.setStatus(savedOrder.getStatus());
         response.setDateAdded(savedOrder.getDateAdded());
+        response.setDepartment(savedOrder.getDepartment());
+        response.setDesignProgress(savedOrder.getDesignProgress());
+        response.setProductionProgress(savedOrder.getProductionProgress());
+        response.setMachiningProgress(savedOrder.getMachiningProgress());
+        response.setInspectionProgress(savedOrder.getInspectionProgress());
         
         List<CustomerInfo> customerInfos = new ArrayList<>();
         CustomerInfo customerInfo = new CustomerInfo();
@@ -143,6 +176,10 @@ public class OrderService {
         response.setStatus(order.getStatus());
         response.setDateAdded(order.getDateAdded());
         response.setDepartment(order.getDepartment()); // Add department to response
+        response.setDesignProgress(order.getDesignProgress());
+        response.setProductionProgress(order.getProductionProgress());
+        response.setMachiningProgress(order.getMachiningProgress());
+        response.setInspectionProgress(order.getInspectionProgress());
         
         if (order.getCustomers() != null && !order.getCustomers().isEmpty()) {
             List<CustomerInfo> customerInfos = order.getCustomers().stream()
@@ -187,6 +224,10 @@ public class OrderService {
                 response.setStatus(order.getStatus());
                 response.setDateAdded(order.getDateAdded());
                 response.setDepartment(order.getDepartment()); // Add department to response
+                response.setDesignProgress(order.getDesignProgress());
+                response.setProductionProgress(order.getProductionProgress());
+                response.setMachiningProgress(order.getMachiningProgress());
+                response.setInspectionProgress(order.getInspectionProgress());
                 
                 // Map customers if they exist
                 if (order.getCustomers() != null && !order.getCustomers().isEmpty()) {
@@ -243,6 +284,10 @@ public class OrderService {
                 response.setStatus(order.getStatus());
                 response.setDateAdded(order.getDateAdded());
                 response.setDepartment(order.getDepartment());
+                response.setDesignProgress(order.getDesignProgress());
+                response.setProductionProgress(order.getProductionProgress());
+                response.setMachiningProgress(order.getMachiningProgress());
+                response.setInspectionProgress(order.getInspectionProgress());
                 
                 // Map customers if they exist
                 if (order.getCustomers() != null && !order.getCustomers().isEmpty()) {
@@ -415,6 +460,10 @@ public class OrderService {
         response.setStatus(order.getStatus());
         response.setDateAdded(order.getDateAdded());
         response.setDepartment(order.getDepartment());
+        response.setDesignProgress(order.getDesignProgress());
+        response.setProductionProgress(order.getProductionProgress());
+        response.setMachiningProgress(order.getMachiningProgress());
+        response.setInspectionProgress(order.getInspectionProgress());
         
         if (order.getCustomers() != null && !order.getCustomers().isEmpty()) {
             List<CustomerInfo> customerInfos = order.getCustomers().stream()

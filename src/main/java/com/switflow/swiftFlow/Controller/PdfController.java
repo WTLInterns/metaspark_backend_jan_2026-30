@@ -1,28 +1,37 @@
 package com.switflow.swiftFlow.Controller;
 
-import com.switflow.swiftFlow.Response.StatusResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.switflow.swiftFlow.Entity.Status;
+import com.switflow.swiftFlow.Response.MachinesResponse;
+import com.switflow.swiftFlow.Service.MachinesService;
 import com.switflow.swiftFlow.Service.PdfService;
 import com.switflow.swiftFlow.Service.StatusService;
-import com.switflow.swiftFlow.Service.MachinesService;
-import com.switflow.swiftFlow.Response.MachinesResponse;
+import com.switflow.swiftFlow.Repo.StatusRepository;
+import com.switflow.swiftFlow.Request.StatusRequest;
 import com.switflow.swiftFlow.pdf.PdfRow;
 import com.switflow.swiftFlow.utility.Department;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Map;
+import java.util.Optional;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 
 @RestController
 @RequestMapping("/pdf")
@@ -35,26 +44,21 @@ public class PdfController {
     private StatusService statusService;
 
     @Autowired
+    private StatusRepository statusRepository;
+
+    @Autowired
     private MachinesService machinesService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @GetMapping("/order/{orderId}/rows")
-    @PreAuthorize("hasAnyRole('ADMIN','DESIGN')")
-    public ResponseEntity<List<PdfRow>> getPdfRows(@PathVariable long orderId) throws IOException {
-        List<PdfRow> rows = pdfService.analyzePdfRows(orderId);
-        return ResponseEntity.ok(rows);
-    }
-
     public static class RowSelectionRequest {
         private List<String> selectedRowIds;
-        private Long machineId; // optional, used for machining-selection
-        private Boolean threeCheckbox; // optional, used for three-checkbox UI
+        private Long machineId;
+        private String attachmentUrl;
 
         public List<String> getSelectedRowIds() {
             return selectedRowIds;
         }
-
         public void setSelectedRowIds(List<String> selectedRowIds) {
             this.selectedRowIds = selectedRowIds;
         }
@@ -67,12 +71,12 @@ public class PdfController {
             this.machineId = machineId;
         }
 
-        public Boolean getThreeCheckbox() {
-            return threeCheckbox;
+        public String getAttachmentUrl() {
+            return attachmentUrl;
         }
 
-        public void setThreeCheckbox(Boolean threeCheckbox) {
-            this.threeCheckbox = threeCheckbox;
+        public void setAttachmentUrl(String attachmentUrl) {
+            this.attachmentUrl = attachmentUrl;
         }
     }
 
@@ -80,10 +84,9 @@ public class PdfController {
         private List<String> designerSelectedRowIds;
         private List<String> productionSelectedRowIds;
         private List<String> machineSelectedRowIds;
-        private List<String> inspectionSelectedRowIds; // Added for inspection selection
+        private List<String> inspectionSelectedRowIds;
         private Long machineId;
-        // optional marker to indicate this comes from new three-checkbox UI
-        private Boolean threeCheckbox;
+        private List<Map<String, Object>> selectedItems;
 
         public List<String> getDesignerSelectedRowIds() {
             return designerSelectedRowIds;
@@ -124,178 +127,13 @@ public class PdfController {
         public void setMachineId(Long machineId) {
             this.machineId = machineId;
         }
-    }
 
-    public static class RowSelectionStatusRequest extends RowSelectionRequest {
-        private Department targetStatus;
-
-        // Optional explicit attachmentUrl for PRODUCTION / PRODUCTION_READY status
-        private String attachmentUrl;
-
-        public Department getTargetStatus() {
-            return targetStatus;
+        public List<Map<String, Object>> getSelectedItems() {
+            return selectedItems;
         }
 
-        public void setTargetStatus(Department targetStatus) {
-            this.targetStatus = targetStatus;
-        }
-
-        public String getAttachmentUrl() {
-            return attachmentUrl;
-        }
-
-        public void setAttachmentUrl(String attachmentUrl) {
-            this.attachmentUrl = attachmentUrl;
-        }
-    }
-
-    @PostMapping("/order/{orderId}/filter")
-    @PreAuthorize("hasAnyRole('ADMIN','DESIGN')")
-    public ResponseEntity<?> createFilteredPdf(
-            @PathVariable long orderId,
-            @RequestBody RowSelectionRequest request
-    ) {
-        if (request == null || request.getSelectedRowIds() == null || request.getSelectedRowIds().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", "No rows selected",
-                    "status", 400
-            ));
-        }
-
-        try {
-            StatusResponse response = pdfService.generateFilteredPdf(orderId, request.getSelectedRowIds());
-            return ResponseEntity.ok(response);
-        } catch (IllegalStateException | IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", e.getMessage(),
-                    "status", 400
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of(
-                    "message", "Failed to generate filtered PDF: " + e.getMessage(),
-                    "error", e.getClass().getSimpleName(),
-                    "status", 500
-            ));
-        }
-    }
-
-    @PostMapping("/order/{orderId}/selection")
-    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION')")
-    public ResponseEntity<?> saveRowSelection(
-            @PathVariable long orderId,
-            @RequestBody RowSelectionStatusRequest request
-    ) {
-        try {
-            if (request == null || request.getSelectedRowIds() == null || request.getSelectedRowIds().isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "message", "No rows selected",
-                        "status", 400
-                ));
-            }
-
-            StatusResponse response = pdfService.saveRowSelection(
-                    orderId,
-                    request.getSelectedRowIds(),
-                    Department.PRODUCTION,
-                    request.getAttachmentUrl(),
-                    null,
-                    null
-            );
-            return ResponseEntity.ok(response);
-        } catch (IllegalStateException | IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(Map.of(
-                    "message", e.getMessage(),
-                    "status", 400
-            ));
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of(
-                    "message", "Failed to save PDF row selection: " + e.getMessage(),
-                    "error", e.getClass().getSimpleName(),
-                    "status", 500
-            ));
-        }
-    }
-
-    @GetMapping("/order/{orderId}/selection")
-    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION')")
-    public ResponseEntity<Map<String, Object>> getRowSelection(@PathVariable long orderId) {
-        List<StatusResponse> history = statusService.getStatusesByOrderId(orderId);
-        if (history == null || history.isEmpty()) {
-            return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
-        }
-
-        StatusResponse latest = history.stream()
-                .filter(s -> s.getNewStatus() == Department.PRODUCTION
-                        && s.getComment() != null
-                        && s.getComment().contains("selectedRowIds"))
-                .reduce((first, second) -> second)
-                .orElse(null);
-
-        if (latest == null) {
-            return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
-        }
-
-        String comment = latest.getComment();
-        if (comment == null || comment.isBlank()) {
-            return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
-        }
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(comment);
-
-            List<String> ids = new ArrayList<>();
-            JsonNode arr = root.get("selectedRowIds");
-            if (arr != null && arr.isArray()) {
-                for (JsonNode n : arr) {
-                    ids.add(n.asText());
-                }
-            }
-
-            Long machineId = null;
-            String machineName = null;
-            if (root.has("machineId")) {
-                machineId = root.get("machineId").isNull() ? null : root.get("machineId").asLong();
-            }
-            if (root.has("machineName")) {
-                machineName = root.get("machineName").isNull() ? null : root.get("machineName").asText();
-            }
-
-            Map<String, Object> result = new HashMap<>();
-            result.put("selectedRowIds", ids);
-            if (machineId != null) {
-                result.put("machineId", machineId);
-            }
-            if (machineName != null) {
-                result.put("machineName", machineName);
-            }
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            // Fallback: try old string parsing for selectedRowIds only
-            try {
-                int start = comment.indexOf('[');
-                int end = comment.indexOf(']');
-                if (start == -1 || end == -1 || end <= start) {
-                    return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
-                }
-                String inside = comment.substring(start + 1, end);
-                String[] parts = inside.split(",");
-                List<String> ids = new ArrayList<>();
-                for (String p : parts) {
-                    String id = p.trim();
-                    if (id.startsWith("\"")) {
-                        id = id.substring(1);
-                    }
-                    if (id.endsWith("\"")) {
-                        id = id.substring(0, id.length() - 1);
-                    }
-                    if (!id.isEmpty()) {
-                        ids.add(id);
-                    }
-                }
-                return ResponseEntity.ok(Map.of("selectedRowIds", ids));
-            } catch (Exception fallback) {
-                return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
-            }
+        public void setSelectedItems(List<Map<String, Object>> selectedItems) {
+            this.selectedItems = selectedItems;
         }
     }
 
@@ -306,22 +144,12 @@ public class PdfController {
             @RequestBody RowSelectionRequest request
     ) {
         try {
-            if (request == null || request.getSelectedRowIds() == null || request.getSelectedRowIds().isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of(
-                        "message", "No rows selected",
-                        "status", 400
-                ));
-            }
-
-            StatusResponse response = pdfService.saveRowSelection(
-                    orderId,
-                    request.getSelectedRowIds(),
-                    Department.INSPECTION,
-                    null,
-                    null,
-                    null
-            );
-            return ResponseEntity.ok(response);
+            StatusRequest statusRequest = new StatusRequest();
+            statusRequest.setNewStatus(Department.INSPECTION);
+            statusRequest.setComment("Sent to Inspection");
+            statusRequest.setPercentage(null);
+            statusRequest.setAttachmentUrl(null);
+            return ResponseEntity.ok(statusService.createStatus(statusRequest, orderId));
         } catch (IllegalStateException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of(
                     "message", e.getMessage(),
@@ -349,6 +177,7 @@ public class PdfController {
                         "status", 400
                 ));
             }
+
             Long machineId = request.getMachineId();
             String machineName = null;
             if (machineId != null) {
@@ -361,15 +190,14 @@ public class PdfController {
                 }
             }
 
-            StatusResponse response = pdfService.saveRowSelection(
+            return ResponseEntity.ok(pdfService.saveRowSelection(
                     orderId,
                     request.getSelectedRowIds(),
                     Department.MACHINING,
-                    null,
+                    request.getAttachmentUrl(),
                     machineId,
                     machineName
-            );
-            return ResponseEntity.ok(response);
+            ));
         } catch (IllegalStateException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of(
                     "message", e.getMessage(),
@@ -387,40 +215,29 @@ public class PdfController {
     @GetMapping("/order/{orderId}/machining-selection")
     @PreAuthorize("hasAnyRole('ADMIN','PRODUCTION','MACHINING')")
     public ResponseEntity<Map<String, Object>> getMachiningSelection(@PathVariable long orderId) {
-        List<StatusResponse> history = statusService.getStatusesByOrderId(orderId);
-        if (history == null || history.isEmpty()) {
+        List<Status> statuses = statusRepository.findByOrdersOrderId(orderId);
+        if (statuses == null || statuses.isEmpty()) {
             return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
         }
 
-        StatusResponse latest = history.stream()
-                .filter(s -> s.getNewStatus() == Department.MACHINING
+        Status latest = statuses.stream()
+                .filter(s -> s != null
+                        && s.getNewStatus() == Department.MACHINING
                         && s.getComment() != null
                         && s.getComment().contains("selectedRowIds"))
-                .reduce((first, second) -> second)
+                .max(Comparator.comparing(Status::getId))
                 .orElse(null);
 
-        if (latest == null) {
+        if (latest == null || latest.getComment() == null || latest.getComment().isBlank()) {
             return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
         }
 
-        String comment = latest.getComment();
-        if (comment == null || comment.isBlank()) {
-            return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
-        }
+        String comment = latest.getComment().trim();
         try {
             JsonNode node = objectMapper.readTree(comment);
-            JsonNode selectedArray = node.get("selectedRowIds");
-            List<String> ids = new ArrayList<>();
-            if (selectedArray != null && selectedArray.isArray()) {
-                for (JsonNode idNode : selectedArray) {
-                    String id = idNode.asText();
-                    if (id != null && !id.isBlank()) {
-                        ids.add(id);
-                    }
-                }
-            }
             Map<String, Object> result = new HashMap<>();
-            result.put("selectedRowIds", ids);
+            result.put("selectedRowIds", extractStringList(node.get("selectedRowIds")));
+
             JsonNode machineIdNode = node.get("machineId");
             if (machineIdNode != null && !machineIdNode.isNull()) {
                 result.put("machineId", machineIdNode.asLong());
@@ -431,40 +248,17 @@ public class PdfController {
             }
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            // Fallback: try old parsing logic for selectedRowIds only
-            try {
-                int start = comment.indexOf('[');
-                int end = comment.indexOf(']');
-                if (start == -1 || end == -1 || end <= start) {
-                    return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
-                }
-                String inside = comment.substring(start + 1, end);
-                String[] parts = inside.split(",");
-                List<String> ids = new ArrayList<>();
-                for (String p : parts) {
-                    String id = p.trim();
-                    if (id.startsWith("\"")) {
-                        id = id.substring(1);
-                    }
-                    if (id.endsWith("\"")) {
-                        id = id.substring(0, id.length() - 1);
-                    }
-                    if (!id.isEmpty()) {
-                        ids.add(id);
-                    }
-                }
-                return ResponseEntity.ok(Map.of("selectedRowIds", ids));
-            } catch (Exception fallback) {
-                return ResponseEntity.ok(Map.of("selectedRowIds", List.of()));
-            }
+            return ResponseEntity.ok(Map.of("selectedRowIds", extractRowIdsFromComment(comment)));
         }
     }
 
     @PostMapping("/order/{orderId}/three-checkbox-selection")
     @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MACHINING','INSPECTION')")
+    @Transactional
     public ResponseEntity<?> saveThreeCheckboxSelection(
             @PathVariable long orderId,
-            @RequestBody ThreeCheckboxRequest request
+            @RequestBody ThreeCheckboxRequest request,
+            HttpServletRequest httpRequest
     ) {
         try {
             if (request == null) {
@@ -474,92 +268,80 @@ public class PdfController {
                 ));
             }
 
-            // Determine caller role from Spring Security
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            String role = null;
+            String authorityRole = null;
             if (authentication != null && authentication.getAuthorities() != null) {
                 for (GrantedAuthority authority : authentication.getAuthorities()) {
                     String auth = authority.getAuthority();
                     if (auth != null && auth.startsWith("ROLE_")) {
-                        role = auth;
+                        authorityRole = auth;
                         break;
                     }
                 }
             }
 
-            boolean isAdmin = "ROLE_ADMIN".equals(role);
-            boolean isDesign = "ROLE_DESIGN".equals(role);
-            boolean isProduction = "ROLE_PRODUCTION".equals(role);
-            boolean isMachining = "ROLE_MACHINING".equals(role);
-            boolean isInspection = "ROLE_INSPECTION".equals(role);
-
-            // Save designer selection – only DESIGN or ADMIN may write this
-            if ((isDesign || isAdmin)
-                    && request.getDesignerSelectedRowIds() != null
-                    && !request.getDesignerSelectedRowIds().isEmpty()) {
-                pdfService.saveRowSelectionWithoutTransition(
-                        orderId,
-                        request.getDesignerSelectedRowIds(),
-                        Department.DESIGN,
-                        null,
-                        null,
-                        null
-                );
+            Department currentRole;
+            try {
+                currentRole = resolveEffectiveRole(httpRequest, request, authorityRole);
+            } catch (IllegalArgumentException ex) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "message", ex.getMessage(),
+                        "status", 400
+                ));
             }
 
-            // Save production selection – only PRODUCTION or ADMIN may write this
-            if ((isProduction || isAdmin)
-                    && request.getProductionSelectedRowIds() != null
-                    && !request.getProductionSelectedRowIds().isEmpty()) {
-                pdfService.saveRowSelectionWithoutTransition(
-                        orderId,
-                        request.getProductionSelectedRowIds(),
-                        Department.PRODUCTION,
-                        null,
-                        null,
-                        null
-                );
+            if (currentRole == null) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "message", "Unable to determine role",
+                        "status", 400
+                ));
             }
 
-            // Save machine selection – only MACHINING or ADMIN may write this
-            if ((isMachining || isAdmin)
-                    && request.getMachineSelectedRowIds() != null
-                    && !request.getMachineSelectedRowIds().isEmpty()) {
-                String machineName = null;
-                if (request.getMachineId() != null) {
-                    try {
-                        MachinesResponse machine = machinesService.getMachines(request.getMachineId().intValue());
-                        if (machine != null) {
-                            machineName = machine.getMachineName();
-                        }
-                    } catch (Exception ignored) {
+            List<String> selected;
+            if (currentRole == Department.DESIGN) {
+                selected = request.getDesignerSelectedRowIds();
+            } else if (currentRole == Department.PRODUCTION) {
+                selected = request.getProductionSelectedRowIds();
+            } else if (currentRole == Department.MACHINING) {
+                selected = request.getMachineSelectedRowIds();
+            } else {
+                selected = request.getInspectionSelectedRowIds();
+            }
+
+            if (currentRole != Department.INSPECTION && (selected == null || selected.isEmpty())) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "message", "No rows selected",
+                        "status", 400
+                ));
+            }
+            if (currentRole == Department.INSPECTION && selected == null) {
+                selected = List.of();
+            }
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("selectedRowIds", selected);
+            payload.put("threeCheckbox", true);
+
+            // Persist row detail objects for Design so Order Report PDFs can display row data.
+            if (currentRole == Department.DESIGN && request.getSelectedItems() != null && !request.getSelectedItems().isEmpty()) {
+                payload.put("selectedItems", request.getSelectedItems());
+            }
+
+            // Persist machine selection context if available.
+            Long machineId = request.getMachineId();
+            if (currentRole == Department.MACHINING && machineId != null) {
+                payload.put("machineId", machineId);
+                try {
+                    MachinesResponse machine = machinesService.getMachines(machineId.intValue());
+                    if (machine != null && machine.getMachineName() != null && !machine.getMachineName().isBlank()) {
+                        payload.put("machineName", machine.getMachineName());
                     }
+                } catch (Exception ignored) {
                 }
-
-                pdfService.saveRowSelectionWithoutTransition(
-                        orderId,
-                        request.getMachineSelectedRowIds(),
-                        Department.MACHINING,
-                        null,
-                        request.getMachineId(),
-                        machineName
-                );
             }
 
-            // Save inspection selection – only INSPECTION or ADMIN may write this
-            if ((isInspection || isAdmin)
-                    && request.getInspectionSelectedRowIds() != null
-                    && !request.getInspectionSelectedRowIds().isEmpty()) {
-                pdfService.saveRowSelectionWithoutTransition(
-                        orderId,
-                        request.getInspectionSelectedRowIds(),
-                        Department.INSPECTION,
-                        null,
-                        null,
-                        null
-                );
-            }
-
+            String jsonComment = objectMapper.writeValueAsString(payload);
+            pdfService.saveRowSelectionWithoutTransitionRawComment(orderId, currentRole, jsonComment, null);
             return ResponseEntity.ok(Map.of("message", "Three-checkbox selection saved successfully"));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(Map.of(
@@ -573,10 +355,9 @@ public class PdfController {
     @GetMapping("/order/{orderId}/three-checkbox-selection")
     @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MACHINING','INSPECTION')")
     public ResponseEntity<Map<String, Object>> getThreeCheckboxSelection(@PathVariable long orderId) {
-        List<StatusResponse> history = statusService.getStatusesByOrderId(orderId);
         Map<String, Object> result = new HashMap<>();
-
-        if (history == null || history.isEmpty()) {
+        List<Status> statuses = statusRepository.findByOrdersOrderId(orderId);
+        if (statuses == null || statuses.isEmpty()) {
             result.put("designerSelectedRowIds", List.of());
             result.put("productionSelectedRowIds", List.of());
             result.put("machineSelectedRowIds", List.of());
@@ -584,123 +365,224 @@ public class PdfController {
             return ResponseEntity.ok(result);
         }
 
-        // Get designer selection
-        StatusResponse designerLatest = history.stream()
-                .filter(s -> s.getNewStatus() == Department.DESIGN
-                        && s.getComment() != null
-                        && s.getComment().contains("selectedRowIds"))
-                .reduce((first, second) -> second)
-                .orElse(null);
+        List<String> designer = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.DESIGN);
+        List<String> production = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.PRODUCTION);
+        List<String> inspection = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.INSPECTION);
 
-        if (designerLatest != null) {
-            List<String> designerIds = extractRowIdsFromComment(designerLatest.getComment());
-            result.put("designerSelectedRowIds", designerIds);
-        } else {
-            result.put("designerSelectedRowIds", List.of());
-        }
+        List<String> machine = extractThreeCheckboxSelectedRowIdsFromLatestMachiningStatus(statuses);
 
-        // Get production selection
-        StatusResponse productionLatest = history.stream()
-                .filter(s -> s.getNewStatus() == Department.PRODUCTION
-                        && s.getComment() != null
-                        && s.getComment().contains("selectedRowIds"))
-                .reduce((first, second) -> second)
-                .orElse(null);
+        result.put("designerSelectedRowIds", designer);
+        result.put("productionSelectedRowIds", production);
+        result.put("machineSelectedRowIds", machine);
+        result.put("inspectionSelectedRowIds", inspection);
 
-        if (productionLatest != null) {
-            List<String> productionIds = extractRowIdsFromComment(productionLatest.getComment());
-            result.put("productionSelectedRowIds", productionIds);
-        } else {
-            result.put("productionSelectedRowIds", List.of());
-        }
-
-        // Get machine selection – for INSPECTION role, return all machine selections
-        // regardless of how they were created. For other roles, maintain the
-        // three-checkbox restriction to avoid confusing Machining UI.
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        String role = null;
-        if (authentication != null && authentication.getAuthorities() != null) {
-            for (GrantedAuthority authority : authentication.getAuthorities()) {
-                String auth = authority.getAuthority();
-                if (auth != null && auth.startsWith("ROLE_")) {
-                    role = auth;
-                    break;
-                }
-            }
-        }
-        boolean isInspection = "ROLE_INSPECTION".equals(role);
-        
-        StatusResponse machineLatest = null;
-        if (isInspection) {
-            // For inspection users, look for any MACHINING records that might contain selections
-            machineLatest = history.stream()
-                    .filter(s -> s.getNewStatus() == Department.MACHINING && s.getComment() != null)
-                    .reduce((first, second) -> second)
-                    .orElse(null);
-        } else {
-            // For other users, maintain stricter filtering
-            machineLatest = history.stream()
-                    .filter(s -> s.getNewStatus() == Department.MACHINING
-                            && s.getComment() != null
-                            && s.getComment().contains("selectedRowIds"))
-                    .reduce((first, second) -> second)
-                    .orElse(null);
-        }
-
-        if (machineLatest != null) {
-            try {
-                JsonNode node = objectMapper.readTree(machineLatest.getComment());
-                // For INSPECTION role, return machine selections regardless of origin.
-                // For other roles, only return selections made with three-checkbox system.
-                JsonNode marker = node.get("threeCheckbox");
-                boolean isThreeCheckbox = marker != null && marker.asBoolean(false);
-                
-                if (isInspection || isThreeCheckbox) {
-                    List<String> machineIds = extractRowIdsFromComment(machineLatest.getComment());
-                    result.put("machineSelectedRowIds", machineIds);
-
-                    JsonNode machineIdNode = node.get("machineId");
-                    if (machineIdNode != null && !machineIdNode.isNull()) {
-                        result.put("machineId", machineIdNode.asLong());
-                    }
-                    JsonNode machineNameNode = node.get("machineName");
-                    if (machineNameNode != null && !machineNameNode.isNull()) {
-                        result.put("machineName", machineNameNode.asText());
-                    }
-                } else {
-                    // Not created by new three-checkbox flow and not for inspection – ignore
-                    result.put("machineSelectedRowIds", List.of());
-                }
-            } catch (Exception e) {
-                // For INSPECTION role, if JSON parsing fails (old system), still return machine selections
-                // For other roles, only return selections from new three-checkbox system
-                if (isInspection) {
-                    List<String> machineIds = extractRowIdsFromComment(machineLatest.getComment());
-                    result.put("machineSelectedRowIds", machineIds);
-                } else {
-                    result.put("machineSelectedRowIds", List.of());
-                }
-            }
-        } else {
-            result.put("machineSelectedRowIds", List.of());
-        }
-
-        // Get inspection selection
-        StatusResponse inspectionLatest = history.stream()
-                .filter(s -> s.getNewStatus() == Department.INSPECTION
-                        && s.getComment() != null
-                        && s.getComment().contains("selectedRowIds"))
-                .reduce((first, second) -> second)
-                .orElse(null);
-
-        if (inspectionLatest != null) {
-            List<String> inspectionIds = extractRowIdsFromComment(inspectionLatest.getComment());
-            result.put("inspectionSelectedRowIds", inspectionIds);
-        } else {
-            result.put("inspectionSelectedRowIds", List.of());
-        }
-
+        Optional<Map<String, Object>> machineCtx = extractMachineContextFromLatestMachiningStatus(statuses);
+        machineCtx.ifPresent(result::putAll);
         return ResponseEntity.ok(result);
+    }
+
+    private List<String> extractSelectedRowIdsFromLatestDepartmentStatus(List<Status> statuses, Department department) {
+        if (statuses == null || statuses.isEmpty() || department == null) {
+            return List.of();
+        }
+
+        Status latest = statuses.stream()
+                .filter(s -> s != null
+                        && s.getNewStatus() == department
+                        && s.getComment() != null
+                        && s.getComment().contains("selectedRowIds"))
+                .max(Comparator.comparing(Status::getId))
+                .orElse(null);
+
+        if (latest == null || latest.getComment() == null || latest.getComment().isBlank()) {
+            return List.of();
+        }
+
+        try {
+            JsonNode node = objectMapper.readTree(latest.getComment().trim());
+            return extractStringList(node.get("selectedRowIds"));
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private Optional<Map<String, Object>> extractMachineContextFromLatestMachiningStatus(List<Status> statuses) {
+        if (statuses == null || statuses.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Status latest = statuses.stream()
+                .filter(s -> s != null
+                        && s.getNewStatus() == Department.MACHINING
+                        && s.getComment() != null
+                        && (s.getComment().contains("machineId") || s.getComment().contains("machineName")))
+                .max(Comparator.comparing(Status::getId))
+                .orElse(null);
+
+        if (latest == null || latest.getComment() == null || latest.getComment().isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            JsonNode node = objectMapper.readTree(latest.getComment().trim());
+            Map<String, Object> ctx = new HashMap<>();
+            JsonNode machineIdNode = node.get("machineId");
+            if (machineIdNode != null && !machineIdNode.isNull()) {
+                ctx.put("machineId", machineIdNode.asLong());
+            }
+            JsonNode machineNameNode = node.get("machineName");
+            if (machineNameNode != null && !machineNameNode.isNull()) {
+                ctx.put("machineName", machineNameNode.asText());
+            }
+            return ctx.isEmpty() ? Optional.empty() : Optional.of(ctx);
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    private List<String> extractThreeCheckboxSelectedRowIdsFromLatestMachiningStatus(List<Status> statuses) {
+        if (statuses == null || statuses.isEmpty()) {
+            return List.of();
+        }
+
+        Status latest = statuses.stream()
+                .filter(s -> s != null
+                        && s.getNewStatus() == Department.MACHINING
+                        && s.getComment() != null
+                        && s.getComment().contains("threeCheckbox")
+                        && s.getComment().contains("selectedRowIds"))
+                .max(Comparator.comparing(Status::getId))
+                .orElse(null);
+
+        if (latest == null || latest.getComment() == null || latest.getComment().isBlank()) {
+            return List.of();
+        }
+
+        try {
+            JsonNode node = objectMapper.readTree(latest.getComment().trim());
+            return extractStringList(node.get("selectedRowIds"));
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private Department resolveEffectiveRole(HttpServletRequest req, ThreeCheckboxRequest body, String authorityRole) {
+        boolean isAdmin = "ROLE_ADMIN".equals(authorityRole);
+
+        int bodyNonEmptyCount = 0;
+        Department bodyInferred = null;
+        if (body != null) {
+            if (body.getDesignerSelectedRowIds() != null && !body.getDesignerSelectedRowIds().isEmpty()) {
+                bodyNonEmptyCount++;
+                bodyInferred = Department.DESIGN;
+            }
+            if (body.getProductionSelectedRowIds() != null && !body.getProductionSelectedRowIds().isEmpty()) {
+                bodyNonEmptyCount++;
+                bodyInferred = Department.PRODUCTION;
+            }
+            // NOTE: machineSelectedRowIds is intentionally ignored for role inference.
+        }
+
+        if (isAdmin) {
+            if (bodyNonEmptyCount != 1) {
+                throw new IllegalArgumentException("ADMIN must provide exactly one non-empty role selection array");
+            }
+            return bodyInferred;
+        }
+
+        // Body-driven inference is highest priority for DESIGN / PRODUCTION only.
+        if (bodyNonEmptyCount == 1) {
+            return bodyInferred;
+        }
+
+        Department fromContext = resolveRoleFromRequestContext(req);
+        if (fromContext != null) {
+            return fromContext;
+        }
+
+        if ("ROLE_DESIGN".equals(authorityRole)) {
+            return Department.DESIGN;
+        }
+        if ("ROLE_PRODUCTION".equals(authorityRole)) {
+            return Department.PRODUCTION;
+        }
+        if ("ROLE_MACHINING".equals(authorityRole)) {
+            return Department.MACHINING;
+        }
+        if ("ROLE_INSPECTION".equals(authorityRole)) {
+            return Department.INSPECTION;
+        }
+        return null;
+    }
+
+    private Department resolveRoleFromRequestContext(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        String referer = request.getHeader("Referer");
+        String forwardedUri = request.getHeader("X-Forwarded-Uri");
+        String originalUri = request.getHeader("X-Original-URI");
+        String originalUrl = request.getHeader("X-Original-URL");
+
+        String context = (referer != null ? referer : "")
+                + " " + (forwardedUri != null ? forwardedUri : "")
+                + " " + (originalUri != null ? originalUri : "")
+                + " " + (originalUrl != null ? originalUrl : "");
+        String lower = context.toLowerCase();
+
+        if (lower.contains("/designuser/")) {
+            return Department.DESIGN;
+        }
+        if (lower.contains("/productionuser/")) {
+            return Department.PRODUCTION;
+        }
+        if (lower.contains("/mechanistuser/") || lower.contains("/mechanicuser/") || lower.contains("/machinistuser/")) {
+            return Department.MACHINING;
+        }
+        if (lower.contains("/inspectionuser/")) {
+            return Department.INSPECTION;
+        }
+        return null;
+    }
+
+    private Status findLatestStatus(List<Status> statuses) {
+        if (statuses == null || statuses.isEmpty()) {
+            return null;
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy");
+        return statuses.stream()
+                .max(
+                        Comparator
+                                .comparing((Status s) -> {
+                                    String createdAt = s.getCreatedAt();
+                                    if (createdAt == null || createdAt.isBlank()) {
+                                        return LocalDate.MIN;
+                                    }
+                                    try {
+                                        return LocalDate.parse(createdAt, formatter);
+                                    } catch (DateTimeParseException e) {
+                                        return LocalDate.MIN;
+                                    }
+                                })
+                                .thenComparing(Status::getId)
+                )
+                .orElse(null);
+    }
+
+    private List<String> extractStringList(JsonNode node) {
+        if (node == null || node.isNull() || !node.isArray()) {
+            return List.of();
+        }
+        List<String> ids = new ArrayList<>();
+        for (JsonNode n : node) {
+            if (n != null && !n.isNull()) {
+                String v = n.asText();
+                if (v != null && !v.isBlank()) {
+                    ids.add(v);
+                }
+            }
+        }
+        return ids;
     }
 
     private List<String> extractRowIdsFromComment(String comment) {

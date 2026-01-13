@@ -1,12 +1,14 @@
 package com.switflow.swiftFlow.Entity;
 
 import com.switflow.swiftFlow.utility.Department;
+import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import lombok.AllArgsConstructor;
@@ -32,6 +34,8 @@ public class Status {
     @Enumerated(EnumType.STRING)
     private Department newStatus;
 
+    @Lob
+    @Column(columnDefinition = "LONGTEXT")
     private String comment;
 
     private String attachmentUrl;

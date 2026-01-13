@@ -9,5 +9,4 @@ public class SwiftFlowApplication {
 	public static void main(String[] args) {
 		SpringApplication.run(SwiftFlowApplication.class, args);
 	}
-
 }

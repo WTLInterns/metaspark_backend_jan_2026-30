@@ -45,13 +45,18 @@ public class Orders {
     @OneToMany(mappedBy = "orders")
     private List<Status> statuses;
 
+    private Integer designProgress = 0;
+
+    private Integer productionProgress = 0;
+
+    private Integer machiningProgress = 0;
+
+    private Integer inspectionProgress = 0;
+
     @PrePersist
     protected void onCreate() {
         if (dateAdded == null) {
             dateAdded = LocalDate.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy"));
         }
     }
-
-
-
 }
