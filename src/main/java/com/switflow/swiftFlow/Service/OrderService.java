@@ -102,6 +102,22 @@ public class OrderService {
         order.setCustomProductDetails(orderRequest.getCustomProductDetails());
         order.setUnits(orderRequest.getUnits());
         order.setMaterial(orderRequest.getMaterial());
+        if (orderRequest.getMaterialDetails() != null) {
+            Orders.MaterialDetails md = new Orders.MaterialDetails();
+            md.setMaterial(orderRequest.getMaterialDetails().getMaterial());
+            md.setGas(orderRequest.getMaterialDetails().getGas());
+            md.setThickness(orderRequest.getMaterialDetails().getThickness());
+            md.setType(orderRequest.getMaterialDetails().getType());
+            order.setMaterialDetails(md);
+        }
+        if (orderRequest.getProcessDetails() != null) {
+            Orders.ProcessDetails pd = new Orders.ProcessDetails();
+            pd.setLaserCutting(orderRequest.getProcessDetails().getLaserCutting());
+            pd.setBending(orderRequest.getProcessDetails().getBending());
+            pd.setFabrication(orderRequest.getProcessDetails().getFabrication());
+            pd.setPowderCoating(orderRequest.getProcessDetails().getPowderCoating());
+            order.setProcessDetails(pd);
+        }
         order.setDepartment(orderRequest.getDepartment()); // Add department to the order
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy");
         order.setDateAdded(LocalDate.now().format(formatter));
@@ -137,6 +153,22 @@ public class OrderService {
         response.setCustomProductDetails(savedOrder.getCustomProductDetails());
         response.setUnits(savedOrder.getUnits());
         response.setMaterial(savedOrder.getMaterial());
+        if (savedOrder.getMaterialDetails() != null) {
+            OrderResponse.MaterialDetails md = new OrderResponse.MaterialDetails();
+            md.setMaterial(savedOrder.getMaterialDetails().getMaterial());
+            md.setGas(savedOrder.getMaterialDetails().getGas());
+            md.setThickness(savedOrder.getMaterialDetails().getThickness());
+            md.setType(savedOrder.getMaterialDetails().getType());
+            response.setMaterialDetails(md);
+        }
+        if (savedOrder.getProcessDetails() != null) {
+            OrderResponse.ProcessDetails pd = new OrderResponse.ProcessDetails();
+            pd.setLaserCutting(savedOrder.getProcessDetails().getLaserCutting());
+            pd.setBending(savedOrder.getProcessDetails().getBending());
+            pd.setFabrication(savedOrder.getProcessDetails().getFabrication());
+            pd.setPowderCoating(savedOrder.getProcessDetails().getPowderCoating());
+            response.setProcessDetails(pd);
+        }
         response.setStatus(savedOrder.getStatus());
         response.setDateAdded(savedOrder.getDateAdded());
         response.setDepartment(savedOrder.getDepartment());
@@ -178,6 +210,22 @@ public class OrderService {
         response.setCustomProductDetails(order.getCustomProductDetails());
         response.setUnits(order.getUnits());
         response.setMaterial(order.getMaterial());
+        if (order.getMaterialDetails() != null) {
+            OrderResponse.MaterialDetails md = new OrderResponse.MaterialDetails();
+            md.setMaterial(order.getMaterialDetails().getMaterial());
+            md.setGas(order.getMaterialDetails().getGas());
+            md.setThickness(order.getMaterialDetails().getThickness());
+            md.setType(order.getMaterialDetails().getType());
+            response.setMaterialDetails(md);
+        }
+        if (order.getProcessDetails() != null) {
+            OrderResponse.ProcessDetails pd = new OrderResponse.ProcessDetails();
+            pd.setLaserCutting(order.getProcessDetails().getLaserCutting());
+            pd.setBending(order.getProcessDetails().getBending());
+            pd.setFabrication(order.getProcessDetails().getFabrication());
+            pd.setPowderCoating(order.getProcessDetails().getPowderCoating());
+            response.setProcessDetails(pd);
+        }
         response.setStatus(order.getStatus());
         response.setDateAdded(order.getDateAdded());
         response.setDepartment(order.getDepartment()); // Add department to response
@@ -226,6 +274,22 @@ public class OrderService {
                 response.setCustomProductDetails(order.getCustomProductDetails());
                 response.setUnits(order.getUnits());
                 response.setMaterial(order.getMaterial());
+                if (order.getMaterialDetails() != null) {
+                    OrderResponse.MaterialDetails md = new OrderResponse.MaterialDetails();
+                    md.setMaterial(order.getMaterialDetails().getMaterial());
+                    md.setGas(order.getMaterialDetails().getGas());
+                    md.setThickness(order.getMaterialDetails().getThickness());
+                    md.setType(order.getMaterialDetails().getType());
+                    response.setMaterialDetails(md);
+                }
+                if (order.getProcessDetails() != null) {
+                    OrderResponse.ProcessDetails pd = new OrderResponse.ProcessDetails();
+                    pd.setLaserCutting(order.getProcessDetails().getLaserCutting());
+                    pd.setBending(order.getProcessDetails().getBending());
+                    pd.setFabrication(order.getProcessDetails().getFabrication());
+                    pd.setPowderCoating(order.getProcessDetails().getPowderCoating());
+                    response.setProcessDetails(pd);
+                }
                 response.setStatus(order.getStatus());
                 response.setDateAdded(order.getDateAdded());
                 response.setDepartment(order.getDepartment()); // Add department to response
@@ -395,10 +459,52 @@ public class OrderService {
         }
         
         // Update order fields
-        order.setCustomProductDetails(orderRequest.getCustomProductDetails());
-        order.setUnits(orderRequest.getUnits());
-        order.setMaterial(orderRequest.getMaterial());
-        order.setDepartment(orderRequest.getDepartment());
+        if (orderRequest.getCustomProductDetails() != null) {
+            order.setCustomProductDetails(orderRequest.getCustomProductDetails());
+        }
+        if (orderRequest.getUnits() != null) {
+            order.setUnits(orderRequest.getUnits());
+        }
+        if (orderRequest.getMaterial() != null) {
+            order.setMaterial(orderRequest.getMaterial());
+        }
+        if (orderRequest.getMaterialDetails() != null) {
+            if (order.getMaterialDetails() == null) {
+                order.setMaterialDetails(new Orders.MaterialDetails());
+            }
+            if (orderRequest.getMaterialDetails().getMaterial() != null) {
+                order.getMaterialDetails().setMaterial(orderRequest.getMaterialDetails().getMaterial());
+            }
+            if (orderRequest.getMaterialDetails().getGas() != null) {
+                order.getMaterialDetails().setGas(orderRequest.getMaterialDetails().getGas());
+            }
+            if (orderRequest.getMaterialDetails().getThickness() != null) {
+                order.getMaterialDetails().setThickness(orderRequest.getMaterialDetails().getThickness());
+            }
+            if (orderRequest.getMaterialDetails().getType() != null) {
+                order.getMaterialDetails().setType(orderRequest.getMaterialDetails().getType());
+            }
+        }
+        if (orderRequest.getProcessDetails() != null) {
+            if (order.getProcessDetails() == null) {
+                order.setProcessDetails(new Orders.ProcessDetails());
+            }
+            if (orderRequest.getProcessDetails().getLaserCutting() != null) {
+                order.getProcessDetails().setLaserCutting(orderRequest.getProcessDetails().getLaserCutting());
+            }
+            if (orderRequest.getProcessDetails().getBending() != null) {
+                order.getProcessDetails().setBending(orderRequest.getProcessDetails().getBending());
+            }
+            if (orderRequest.getProcessDetails().getFabrication() != null) {
+                order.getProcessDetails().setFabrication(orderRequest.getProcessDetails().getFabrication());
+            }
+            if (orderRequest.getProcessDetails().getPowderCoating() != null) {
+                order.getProcessDetails().setPowderCoating(orderRequest.getProcessDetails().getPowderCoating());
+            }
+        }
+        if (orderRequest.getDepartment() != null) {
+            order.setDepartment(orderRequest.getDepartment());
+        }
         
         // Handle customer relationship update
         if (orderRequest.getCustomerId() != null) {
@@ -494,6 +600,22 @@ public class OrderService {
         response.setCustomProductDetails(order.getCustomProductDetails());
         response.setUnits(order.getUnits());
         response.setMaterial(order.getMaterial());
+        if (order.getMaterialDetails() != null) {
+            OrderResponse.MaterialDetails md = new OrderResponse.MaterialDetails();
+            md.setMaterial(order.getMaterialDetails().getMaterial());
+            md.setGas(order.getMaterialDetails().getGas());
+            md.setThickness(order.getMaterialDetails().getThickness());
+            md.setType(order.getMaterialDetails().getType());
+            response.setMaterialDetails(md);
+        }
+        if (order.getProcessDetails() != null) {
+            OrderResponse.ProcessDetails pd = new OrderResponse.ProcessDetails();
+            pd.setLaserCutting(order.getProcessDetails().getLaserCutting());
+            pd.setBending(order.getProcessDetails().getBending());
+            pd.setFabrication(order.getProcessDetails().getFabrication());
+            pd.setPowderCoating(order.getProcessDetails().getPowderCoating());
+            response.setProcessDetails(pd);
+        }
         response.setStatus(order.getStatus());
         response.setDateAdded(order.getDateAdded());
         response.setDepartment(order.getDepartment());

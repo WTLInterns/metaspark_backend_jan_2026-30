@@ -29,6 +29,24 @@ public class Orders {
 
     private String material;
 
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "material", column = @Column(name = "material_details_material")),
+            @AttributeOverride(name = "gas", column = @Column(name = "material_details_gas")),
+            @AttributeOverride(name = "thickness", column = @Column(name = "material_details_thickness")),
+            @AttributeOverride(name = "type", column = @Column(name = "material_details_type"))
+    })
+    private MaterialDetails materialDetails;
+
+    @Embedded
+    @AttributeOverrides({
+            @AttributeOverride(name = "laserCutting", column = @Column(name = "process_details_laser_cutting")),
+            @AttributeOverride(name = "bending", column = @Column(name = "process_details_bending")),
+            @AttributeOverride(name = "fabrication", column = @Column(name = "process_details_fabrication")),
+            @AttributeOverride(name = "powderCoating", column = @Column(name = "process_details_powder_coating"))
+    })
+    private ProcessDetails processDetails;
+
     @ManyToMany(mappedBy = "orders")
     private List<Customer> customers;
 
@@ -58,5 +76,27 @@ public class Orders {
         if (dateAdded == null) {
             dateAdded = LocalDate.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy"));
         }
+    }
+
+    @Embeddable
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class MaterialDetails {
+        private String material;
+        private String gas;
+        private String thickness;
+        private String type;
+    }
+
+    @Embeddable
+    @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
+    public static class ProcessDetails {
+        private Boolean laserCutting;
+        private Boolean bending;
+        private Boolean fabrication;
+        private Boolean powderCoating;
     }
 }

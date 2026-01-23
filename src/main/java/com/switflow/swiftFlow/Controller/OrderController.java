@@ -47,7 +47,7 @@ public class OrderController {
     }
     
     @GetMapping("/getById/{orderId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MACHINING','INSPECTION')")
     public ResponseEntity<OrderResponse> getOrderById(@PathVariable Long orderId) {
         OrderResponse response = orderService.getOrderById(orderId);
         return ResponseEntity.ok(response);
