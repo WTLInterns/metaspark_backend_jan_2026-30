@@ -3,10 +3,12 @@ package com.switflow.swiftFlow.Controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.switflow.swiftFlow.Entity.Status;
+import com.switflow.swiftFlow.Entity.User;
 import com.switflow.swiftFlow.Response.MachinesResponse;
 import com.switflow.swiftFlow.Service.MachinesService;
 import com.switflow.swiftFlow.Service.PdfService;
 import com.switflow.swiftFlow.Service.StatusService;
+import com.switflow.swiftFlow.Service.UserService;
 import com.switflow.swiftFlow.Repo.StatusRepository;
 import com.switflow.swiftFlow.Request.StatusRequest;
 import com.switflow.swiftFlow.pdf.PdfRow;
@@ -49,6 +51,9 @@ public class PdfController {
     @Autowired
     private MachinesService machinesService;
 
+    @Autowired
+    private UserService userService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public static class RowSelectionRequest {
@@ -87,6 +92,7 @@ public class PdfController {
         private List<String> inspectionSelectedRowIds;
         private Long machineId;
         private List<Map<String, Object>> selectedItems;
+        private Long assignedUserId; // NEW: For specifying which employee this selection belongs to
 
         public List<String> getDesignerSelectedRowIds() {
             return designerSelectedRowIds;
@@ -134,6 +140,14 @@ public class PdfController {
 
         public void setSelectedItems(List<Map<String, Object>> selectedItems) {
             this.selectedItems = selectedItems;
+        }
+
+        public Long getAssignedUserId() {
+            return assignedUserId;
+        }
+
+        public void setAssignedUserId(Long assignedUserId) {
+            this.assignedUserId = assignedUserId;
         }
     }
 
@@ -321,6 +335,39 @@ public class PdfController {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("selectedRowIds", selected);
             payload.put("threeCheckbox", true);
+            
+            // CRITICAL FIX: Use the assigned employee's ID from the request, not current user
+            Long assignedUserId = request.getAssignedUserId();
+            String assignedUsername = null;
+            
+            if (assignedUserId != null) {
+                payload.put("userId", assignedUserId);
+                try {
+                    User assignedUser = userService.getUserById(assignedUserId).orElse(null);
+                    if (assignedUser != null) {
+                        assignedUsername = assignedUser.getUsername();
+                        payload.put("username", assignedUsername);
+                    }
+                } catch (Exception e) {
+                    // Continue without username
+                }
+            } else {
+                // Fallback to current user if no assigned user ID provided (for direct user selections)
+                String currentUsername = authentication.getName();
+                Long currentUserId = null;
+                try {
+                    User currentUser = userService.findByUsername(currentUsername);
+                    if (currentUser != null) {
+                        currentUserId = currentUser.getId();
+                    }
+                } catch (Exception e) {
+                    // Continue without user info
+                }
+                if (currentUserId != null) {
+                    payload.put("userId", currentUserId);
+                    payload.put("username", currentUsername);
+                }
+            }
 
             // Persist row detail objects for Design so Order Report PDFs can display row data.
             if (currentRole == Department.DESIGN && request.getSelectedItems() != null && !request.getSelectedItems().isEmpty()) {
@@ -354,9 +401,10 @@ public class PdfController {
 
     @GetMapping("/order/{orderId}/three-checkbox-selection")
     @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MACHINING','INSPECTION')")
-    public ResponseEntity<Map<String, Object>> getThreeCheckboxSelection(@PathVariable long orderId) {
+    public ResponseEntity<Map<String, Object>> getThreeCheckboxSelection(@PathVariable long orderId, HttpServletRequest httpRequest) {
         Map<String, Object> result = new HashMap<>();
         List<Status> statuses = statusRepository.findByOrdersOrderId(orderId);
+        
         if (statuses == null || statuses.isEmpty()) {
             result.put("designerSelectedRowIds", List.of());
             result.put("productionSelectedRowIds", List.of());
@@ -365,11 +413,49 @@ public class PdfController {
             return ResponseEntity.ok(result);
         }
 
-        List<String> designer = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.DESIGN);
-        List<String> production = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.PRODUCTION);
-        List<String> inspection = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.INSPECTION);
+        // Get current user for user-specific retrieval
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String currentUsername = authentication.getName();
+        Long currentUserId = null;
+        User currentUser = null;
+        try {
+            currentUser = userService.findByUsername(currentUsername);
+            if (currentUser != null) {
+                currentUserId = currentUser.getId();
+            }
+        } catch (Exception e) {
+            // Continue without user info
+        }
 
-        List<String> machine = extractThreeCheckboxSelectedRowIdsFromLatestMachiningStatus(statuses);
+        // For mechanist users, filter ALL selections by current user
+        // For other users, return department-wide selections
+        List<String> designer, production, machine, inspection;
+        
+        // Check if user is mechanist by either department or authority
+        boolean isMechanist = false;
+        if (currentUser != null && currentUser.getDepartment() != null) {
+            isMechanist = Department.MACHINING.equals(currentUser.getDepartment());
+        }
+        
+        // Also check by authority as fallback
+        if (!isMechanist && authentication != null && authentication.getAuthorities() != null) {
+            isMechanist = authentication.getAuthorities().stream()
+                .anyMatch(auth -> "ROLE_MACHINING".equals(auth.getAuthority()));
+        }
+        
+        if (currentUserId != null && currentUser != null && isMechanist) {
+            // Mechanist user: only show their own selections
+            designer = extractThreeCheckboxSelectedRowIdsForUser(statuses, currentUserId);
+            production = extractThreeCheckboxSelectedRowIdsForUser(statuses, currentUserId);
+            machine = extractThreeCheckboxSelectedRowIdsForUser(statuses, currentUserId);
+            inspection = extractThreeCheckboxSelectedRowIdsForUser(statuses, currentUserId);
+        } else {
+            // Non-mechanist user: show department-wide selections
+            designer = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.DESIGN);
+            production = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.PRODUCTION);
+            machine = extractThreeCheckboxSelectedRowIdsFromLatestMachiningStatus(statuses);
+            inspection = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.INSPECTION);
+        }
 
         result.put("designerSelectedRowIds", designer);
         result.put("productionSelectedRowIds", production);
@@ -378,6 +464,7 @@ public class PdfController {
 
         Optional<Map<String, Object>> machineCtx = extractMachineContextFromLatestMachiningStatus(statuses);
         machineCtx.ifPresent(result::putAll);
+        
         return ResponseEntity.ok(result);
     }
 
@@ -460,6 +547,42 @@ public class PdfController {
 
         try {
             JsonNode node = objectMapper.readTree(latest.getComment().trim());
+            return extractStringList(node.get("selectedRowIds"));
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private List<String> extractThreeCheckboxSelectedRowIdsForUser(List<Status> statuses, Long userId) {
+        if (statuses == null || statuses.isEmpty() || userId == null) {
+            return List.of();
+        }
+
+        // Find all status entries (PRODUCTION or MACHINING) that contain threeCheckbox data for this specific user
+        List<Status> userStatuses = statuses.stream()
+                .filter(s -> s != null
+                        && (s.getNewStatus() == Department.MACHINING || s.getNewStatus() == Department.PRODUCTION)
+                        && s.getComment() != null
+                        && s.getComment().contains("threeCheckbox")
+                        && s.getComment().contains("selectedRowIds")
+                        && s.getComment().contains("\"userId\":" + userId))
+                .collect(java.util.stream.Collectors.toList());
+
+        if (userStatuses.isEmpty()) {
+            return List.of();
+        }
+
+        // Get the latest status for this user
+        Status latestUserStatus = userStatuses.stream()
+                .max(Comparator.comparing(Status::getId))
+                .orElse(null);
+
+        if (latestUserStatus == null || latestUserStatus.getComment() == null || latestUserStatus.getComment().isBlank()) {
+            return List.of();
+        }
+
+        try {
+            JsonNode node = objectMapper.readTree(latestUserStatus.getComment().trim());
             return extractStringList(node.get("selectedRowIds"));
         } catch (Exception e) {
             return List.of();

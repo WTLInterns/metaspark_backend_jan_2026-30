@@ -23,9 +23,17 @@ public class User {
     
     private String password;
     
+    private String fullName;
+    
+    @Column(unique = true)
+    private String email;
+    
+    private String phoneNumber;
     
     private boolean enabled = true;
 
     @Enumerated(EnumType.STRING)
-    private Department department;;
+    private Department department;
+    
+    private Integer machineId; // Foreign key to Machines table
 }
