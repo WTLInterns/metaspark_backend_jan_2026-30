@@ -28,4 +28,6 @@ public interface OrderAssignmentRepository extends JpaRepository<OrderAssignment
     List<Long> findOrderIdsByUserId(@Param("userId") Long userId);
     
     void deleteByUserIdAndOrderId(Long userId, Long orderId);
+
+    void deleteByOrderIdAndDepartment(Long orderId, Department department);
 }

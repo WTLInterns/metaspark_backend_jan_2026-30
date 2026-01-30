@@ -5,14 +5,19 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.switflow.swiftFlow.Entity.Status;
 import com.switflow.swiftFlow.Entity.User;
 import com.switflow.swiftFlow.Response.MachinesResponse;
+import com.switflow.swiftFlow.Response.ProductionAssignmentsResponse;
 import com.switflow.swiftFlow.Service.MachinesService;
+import com.switflow.swiftFlow.Service.OrderCheckboxSelectionService;
 import com.switflow.swiftFlow.Service.PdfService;
 import com.switflow.swiftFlow.Service.StatusService;
 import com.switflow.swiftFlow.Service.UserService;
 import com.switflow.swiftFlow.Repo.StatusRepository;
 import com.switflow.swiftFlow.Request.StatusRequest;
+import com.switflow.swiftFlow.Repo.OrderAssignmentRepository;
 import com.switflow.swiftFlow.pdf.PdfRow;
 import com.switflow.swiftFlow.utility.Department;
+import com.switflow.swiftFlow.utility.PdfType;
+import com.switflow.swiftFlow.utility.SelectionScope;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -54,6 +59,12 @@ public class PdfController {
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private OrderAssignmentRepository orderAssignmentRepository;
+
+    @Autowired
+    private OrderCheckboxSelectionService orderCheckboxSelectionService;
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public static class RowSelectionRequest {
@@ -93,6 +104,8 @@ public class PdfController {
         private Long machineId;
         private List<Map<String, Object>> selectedItems;
         private Long assignedUserId; // NEW: For specifying which employee this selection belongs to
+        private String pdfType;      // NEW: Explicit PDF flow, e.g. PDF1 or PDF2
+        private String scope;        // NEW: Explicit scope, e.g. SUBNEST, PARTS, MATERIAL, NESTING_RESULTS
 
         public List<String> getDesignerSelectedRowIds() {
             return designerSelectedRowIds;
@@ -148,6 +161,138 @@ public class PdfController {
 
         public void setAssignedUserId(Long assignedUserId) {
             this.assignedUserId = assignedUserId;
+        }
+
+        public String getPdfType() {
+            return pdfType;
+        }
+
+        public void setPdfType(String pdfType) {
+            this.pdfType = pdfType;
+        }
+
+        public String getScope() {
+            return scope;
+        }
+
+        public void setScope(String scope) {
+            this.scope = scope;
+        }
+    }
+
+    @PostMapping("/order/{orderId}/machine-send-to-inspection")
+    @PreAuthorize("hasAnyRole('ADMIN','MACHINING')")
+    @Transactional
+    public ResponseEntity<?> machineSendToInspection(@PathVariable long orderId) {
+        try {
+            List<Status> statuses = statusRepository.findByOrdersOrderId(orderId);
+            if (statuses == null || statuses.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "message", "No status history found for this order",
+                        "status", 400
+                ));
+            }
+
+            // Scope-wise merge of all MACHINING threeCheckbox entries
+            Map<String, java.util.LinkedHashSet<String>> scopeMap = new LinkedHashMap<>();
+
+            for (Status s : statuses) {
+                if (s == null || s.getNewStatus() != Department.MACHINING) continue;
+                String comment = s.getComment();
+                if (comment == null || comment.isBlank()) continue;
+                if (!comment.contains("threeCheckbox") || !comment.contains("selectedRowIds")) continue;
+                try {
+                    JsonNode node = objectMapper.readTree(comment.trim());
+
+                    // Prefer explicit pdfType/scope from the comment when available
+                    String explicitScopeKey = null;
+                    JsonNode pdfTypeNode = node.get("pdfType");
+                    JsonNode scopeNode = node.get("scope");
+                    if (pdfTypeNode != null && !pdfTypeNode.isNull() && scopeNode != null && !scopeNode.isNull()) {
+                        String pdfType = pdfTypeNode.asText("");
+                        String scope = scopeNode.asText("");
+                        if (!pdfType.isBlank() && !scope.isBlank()) {
+                            explicitScopeKey = mapPdfTypeAndScopeToKey(pdfType, scope);
+                        }
+                    }
+
+                    List<String> ids = extractStringList(node.get("selectedRowIds"));
+                    for (String id : ids) {
+                        if (id == null || id.isBlank()) continue;
+
+                        String scopeKey;
+                        if (explicitScopeKey != null) {
+                            // When we have pdfType/scope, all row IDs from this status belong to that logical scope
+                            scopeKey = explicitScopeKey;
+                        } else {
+                            // Legacy fallback: infer from the row ID prefix (nesting) or treat as PDF1_SUBNEST
+                            scopeKey = classifyScopeKey(id);
+                        }
+
+                        if (scopeKey == null || scopeKey.isBlank()) continue;
+                        scopeMap.computeIfAbsent(scopeKey, k -> new java.util.LinkedHashSet<>()).add(id);
+                    }
+                } catch (Exception ignored) {
+                    // Skip malformed JSON comments
+                }
+            }
+
+            boolean hasAny = scopeMap.values().stream().anyMatch(set -> set != null && !set.isEmpty());
+            if (!hasAny) {
+                return ResponseEntity.badRequest().body(Map.of(
+                        "message", "No machine selections found to merge for this order",
+                        "status", 400
+                ));
+            }
+
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("threeCheckbox", true);
+            payload.put("source", "MACHINING_MERGE");
+
+            Map<String, Object> scopes = new LinkedHashMap<>();
+            for (Map.Entry<String, java.util.LinkedHashSet<String>> e : scopeMap.entrySet()) {
+                scopes.put(e.getKey(), new java.util.ArrayList<>(e.getValue()));
+            }
+            payload.put("scopes", scopes);
+
+            String mergedComment;
+            try {
+                mergedComment = objectMapper.writeValueAsString(payload);
+            } catch (Exception e) {
+                return ResponseEntity.status(500).body(Map.of(
+                        "message", "Failed to serialize merged selection: " + e.getMessage(),
+                        "status", 500
+                ));
+            }
+
+            StatusRequest statusRequest = new StatusRequest();
+            statusRequest.setNewStatus(Department.INSPECTION);
+            statusRequest.setComment(mergedComment);
+            statusRequest.setPercentage(null);
+            statusRequest.setAttachmentUrl(null);
+
+            statusService.createStatus(statusRequest, orderId);
+
+            // Remove all MACHINING assignments for this order so mechanists no longer see it
+            orderAssignmentRepository.deleteByOrderIdAndDepartment(orderId, Department.MACHINING);
+
+            int mergedCount = scopeMap.values().stream().mapToInt(set -> set != null ? set.size() : 0).sum();
+
+            return ResponseEntity.ok(Map.of(
+                    "message", "Sent to Inspection with merged machine selections",
+                    "mergedCount", mergedCount
+            ));
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "message", e.getMessage(),
+                    "status", 400
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of(
+                    "message", "Failed to send to Inspection with merged selections: " + e.getMessage(),
+                    "error", e.getClass().getSimpleName(),
+                    "status", 500
+            ));
         }
     }
 
@@ -335,6 +480,12 @@ public class PdfController {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("selectedRowIds", selected);
             payload.put("threeCheckbox", true);
+            if (request.getPdfType() != null && !request.getPdfType().isBlank()) {
+                payload.put("pdfType", request.getPdfType());
+            }
+            if (request.getScope() != null && !request.getScope().isBlank()) {
+                payload.put("scope", request.getScope());
+            }
             
             // CRITICAL FIX: Use the assigned employee's ID from the request, not current user
             Long assignedUserId = request.getAssignedUserId();
@@ -401,7 +552,12 @@ public class PdfController {
 
     @GetMapping("/order/{orderId}/three-checkbox-selection")
     @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MACHINING','INSPECTION')")
-    public ResponseEntity<Map<String, Object>> getThreeCheckboxSelection(@PathVariable long orderId, HttpServletRequest httpRequest) {
+    public ResponseEntity<Map<String, Object>> getThreeCheckboxSelection(
+            @PathVariable long orderId,
+            @RequestParam(value = "pdfType", required = false) String pdfType,
+            @RequestParam(value = "scope", required = false) String scope,
+            HttpServletRequest httpRequest
+    ) {
         Map<String, Object> result = new HashMap<>();
         List<Status> statuses = statusRepository.findByOrdersOrderId(orderId);
         
@@ -430,19 +586,29 @@ public class PdfController {
         // For mechanist users, filter ALL selections by current user
         // For other users, return department-wide selections
         List<String> designer, production, machine, inspection;
-        
+
         // Check if user is mechanist by either department or authority
         boolean isMechanist = false;
         if (currentUser != null && currentUser.getDepartment() != null) {
             isMechanist = Department.MACHINING.equals(currentUser.getDepartment());
         }
-        
+
         // Also check by authority as fallback
         if (!isMechanist && authentication != null && authentication.getAuthorities() != null) {
             isMechanist = authentication.getAuthorities().stream()
                 .anyMatch(auth -> "ROLE_MACHINING".equals(auth.getAuthority()));
         }
-        
+
+        // Check if user is an inspection user (for merged machine view)
+        boolean isInspectionUser = false;
+        if (currentUser != null && currentUser.getDepartment() != null) {
+            isInspectionUser = Department.INSPECTION.equals(currentUser.getDepartment());
+        }
+        if (!isInspectionUser && authentication != null && authentication.getAuthorities() != null) {
+            isInspectionUser = authentication.getAuthorities().stream()
+                    .anyMatch(auth -> "ROLE_INSPECTION".equals(auth.getAuthority()));
+        }
+
         if (currentUserId != null && currentUser != null && isMechanist) {
             // Mechanist user: only show their own selections
             designer = extractThreeCheckboxSelectedRowIdsForUser(statuses, currentUserId);
@@ -450,10 +616,52 @@ public class PdfController {
             machine = extractThreeCheckboxSelectedRowIdsForUser(statuses, currentUserId);
             inspection = extractThreeCheckboxSelectedRowIdsForUser(statuses, currentUserId);
         } else {
-            // Non-mechanist user: show department-wide selections
-            designer = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.DESIGN);
-            production = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.PRODUCTION);
-            machine = extractThreeCheckboxSelectedRowIdsFromLatestMachiningStatus(statuses);
+            // Non-mechanist user: show department-wide selections.
+            // For Inspection users with explicit pdfType/scope, use the unified checkbox tables
+            // for Designer base and Production assignments for consistency.
+            boolean hasScopeParams = pdfType != null && !pdfType.isBlank() && scope != null && !scope.isBlank();
+
+            if (isInspectionUser && hasScopeParams) {
+                try {
+                    PdfType pdfEnum = PdfType.valueOf(pdfType.toUpperCase());
+                    SelectionScope scopeEnum = SelectionScope.valueOf(scope.toUpperCase());
+
+                    // Designer column from immutable base selection
+                    designer = orderCheckboxSelectionService.getDesignerBaseSelection(orderId, pdfEnum, scopeEnum);
+
+                    // Production column as union of all employee assignments for this scope
+                    ProductionAssignmentsResponse prodResp = orderCheckboxSelectionService.getProductionAssignments(orderId, pdfEnum, scopeEnum);
+                    List<String> prodUnion = new ArrayList<>();
+                    if (prodResp != null && prodResp.getAssignments() != null) {
+                        for (ProductionAssignmentsResponse.EmployeeRows er : prodResp.getAssignments()) {
+                            if ( er == null || er.getRowKeys() == null) continue;
+                            for (String rk : er.getRowKeys()) {
+                                if (rk == null) continue;
+                                prodUnion.add(rk);
+                            }
+                        }
+                    }
+                    production = prodUnion;
+                } catch (IllegalArgumentException ex) {
+                    // Fallback to legacy behavior if enums cannot be resolved
+                    designer = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.DESIGN);
+                    production = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.PRODUCTION);
+                }
+            } else {
+                designer = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.DESIGN);
+                production = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.PRODUCTION);
+            }
+            if (isInspectionUser) {
+                // Inspection users should see merged machine selection from INSPECTION status, scope-wise
+                String scopeKey = null;
+                if (pdfType != null && scope != null) {
+                    scopeKey = mapPdfTypeAndScopeToKey(pdfType, scope);
+                }
+                machine = extractMergedMachineSelectionFromInspectionStatus(statuses, scopeKey);
+            } else {
+                // Other users (e.g. Production) continue to see latest MACHINING selection
+                machine = extractThreeCheckboxSelectedRowIdsFromLatestMachiningStatus(statuses);
+            }
             inspection = extractSelectedRowIdsFromLatestDepartmentStatus(statuses, Department.INSPECTION);
         }
 
@@ -491,6 +699,91 @@ public class PdfController {
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    private List<String> extractMergedMachineSelectionFromInspectionStatus(List<Status> statuses, String scopeKey) {
+        if (statuses == null || statuses.isEmpty()) {
+            return List.of();
+        }
+
+        // Use the latest INSPECTION status that contains a MACHINING_MERGE payload
+        Status latest = statuses.stream()
+                .filter(s -> s != null
+                        && s.getNewStatus() == Department.INSPECTION
+                        && s.getComment() != null
+                        && s.getComment().contains("MACHINING_MERGE"))
+                .max(Comparator.comparing(Status::getId))
+                .orElse(null);
+
+        if (latest == null || latest.getComment() == null || latest.getComment().isBlank()) {
+            return List.of();
+        }
+
+        try {
+            JsonNode node = objectMapper.readTree(latest.getComment().trim());
+            JsonNode sourceNode = node.get("source");
+            if (sourceNode != null && !sourceNode.isNull()) {
+                String source = sourceNode.asText("");
+                if (!"MACHINING_MERGE".equals(source)) {
+                    return List.of();
+                }
+            }
+
+            JsonNode scopesNode = node.get("scopes");
+            if (scopesNode == null || !scopesNode.isObject()) {
+                return List.of();
+            }
+
+            List<String> result = new ArrayList<>();
+            if (scopeKey != null && !scopeKey.isBlank()) {
+                JsonNode arr = scopesNode.get(scopeKey);
+                result.addAll(extractStringList(arr));
+            } else {
+                // No specific scope requested: union all scopes
+                scopesNode.fieldNames().forEachRemaining(k -> {
+                    JsonNode arr = scopesNode.get(k);
+                    result.addAll(extractStringList(arr));
+                });
+            }
+            return result;
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private String classifyScopeKey(String id) {
+        // PDF2 (nesting) scopes based on ID prefixes
+        String v = id;
+        if (v.startsWith("RESULT-")) {
+            return "PDF2_RESULTS";
+        }
+        if (v.startsWith("PLATE-")) {
+            return "PDF2_PLATE_INFO";
+        }
+        if (v.startsWith("PART-")) {
+            return "PDF2_PART_INFO";
+        }
+        // Fallback: treat as standard PDF1 SUBNEST row number
+        return "PDF1_SUBNEST";
+    }
+
+    private String mapPdfTypeAndScopeToKey(String pdfType, String scope) {
+        String t = pdfType != null ? pdfType.toUpperCase() : "";
+        String s = scope != null ? scope.toUpperCase() : "";
+
+        if ("PDF1".equals(t)) {
+            if ("SUBNEST".equals(s)) return "PDF1_SUBNEST";
+            if ("PARTS".equals(s)) return "PDF1_PARTS";
+            if ("MATERIAL".equals(s)) return "PDF1_MATERIAL";
+        }
+
+        if ("PDF2".equals(t)) {
+            if ("NESTING_RESULTS".equals(s)) return "PDF2_RESULTS";
+            if ("NESTING_PLATE_INFO".equals(s)) return "PDF2_PLATE_INFO";
+            if ("NESTING_PART_INFO".equals(s)) return "PDF2_PART_INFO";
+        }
+
+        return null;
     }
 
     private Optional<Map<String, Object>> extractMachineContextFromLatestMachiningStatus(List<Status> statuses) {
