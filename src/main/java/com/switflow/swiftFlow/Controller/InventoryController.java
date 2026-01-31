@@ -44,14 +44,14 @@ public class InventoryController {
     private InventoryService inventoryService;
 
     @GetMapping("/dashboard")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public ResponseEntity<InventoryDashboardResponse> getDashboard() {
         InventoryDashboardResponse response = inventoryService.getDashboard();
         return ResponseEntity.ok(response);
     }
 
     @PutMapping("/inward/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public ResponseEntity<?> updateInward(@PathVariable Long id, @RequestBody InventoryInwardRequest request) {
         try {
             inventoryService.updateInward(id, request);
@@ -62,7 +62,7 @@ public class InventoryController {
     }
 
     @DeleteMapping("/inward/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public ResponseEntity<?> deleteInward(@PathVariable Long id) {
         try {
             inventoryService.deleteInward(id);
@@ -76,7 +76,7 @@ public class InventoryController {
     }
 
     @PostMapping("/inward")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public ResponseEntity<?> createInward(@RequestBody InventoryInwardRequest request) {
         try {
             inventoryService.createInward(request);
@@ -87,7 +87,7 @@ public class InventoryController {
     }
 
     @PutMapping("/outward/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public ResponseEntity<?> updateOutward(@PathVariable Long id, @RequestBody InventoryOutwardRequest request) {
         try {
             inventoryService.updateOutward(id, request);
@@ -104,7 +104,7 @@ public class InventoryController {
     }
 
     @DeleteMapping("/outward/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public ResponseEntity<?> deleteOutward(@PathVariable Long id) {
         try {
             inventoryService.deleteOutward(id);
@@ -118,7 +118,7 @@ public class InventoryController {
     }
 
     @PostMapping("/outward")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public ResponseEntity<?> createOutward(@RequestBody InventoryOutwardRequest request) {
         try {
             inventoryService.createOutward(request);
@@ -134,7 +134,7 @@ public class InventoryController {
     }
 
     @GetMapping("/report")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public void downloadReport(@RequestParam(name = "type", defaultValue = "csv") String type,
             HttpServletResponse response) throws IOException {
 
@@ -202,7 +202,7 @@ public class InventoryController {
     }
 
     @GetMapping("/remark")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public ResponseEntity<Map<String, String>> getRemark(@RequestParam("type") String type) {
         String remark = inventoryService.generateNewRemark(type);
         Map<String, String> body = new HashMap<>();
