@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -17,6 +18,7 @@ public class EmailService {
     @Autowired
     private EmailTemplateService templateService;
 
+    @Async
     public void sendLoginDetails(String toEmail, String fullName, String password, String department) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
@@ -37,6 +39,7 @@ public class EmailService {
         }
     }
 
+    @Async
     public void sendPasswordResetEmail(String toEmail, String fullName, String resetToken) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
@@ -57,6 +60,7 @@ public class EmailService {
         }
     }
 
+    @Async
     public void sendSimpleEmail(String toEmail, String subject, String text) {
         try {
             SimpleMailMessage message = new SimpleMailMessage();
@@ -73,6 +77,7 @@ public class EmailService {
         }
     }
 
+    @Async
     public void sendUserCreationNotification(String adminEmail, String newUserFullName, String newUserEmail, String department) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
