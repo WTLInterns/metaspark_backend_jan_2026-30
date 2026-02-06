@@ -1,6 +1,7 @@
 package com.switflow.swiftFlow.Repo;
 
 import java.util.Optional;
+import java.util.List;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
@@ -12,4 +13,6 @@ public interface InventoryMaterialMasterRepository extends JpaRepository<Invento
 
     Optional<InventoryMaterialMaster> findByMaterialNameAndThicknessAndSheetSize(String materialName, String thickness,
             String sheetSize);
+
+    List<InventoryMaterialMaster> findByIsActiveTrue();
 }

@@ -40,6 +40,9 @@ public class InventoryMaterialMaster {
 
     private String defaultSupplier;
 
+    @Column(name = "is_active")
+    private Boolean isActive = true;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
@@ -51,6 +54,9 @@ public class InventoryMaterialMaster {
         this.updatedAt = now;
         if (this.quantity == null) {
             this.quantity = 0;
+        }
+        if (this.isActive == null) {
+            this.isActive = true;
         }
     }
 

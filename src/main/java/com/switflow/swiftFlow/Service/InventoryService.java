@@ -43,7 +43,7 @@ public class InventoryService {
     public InventoryDashboardResponse getDashboard() {
         List<InventoryInwardTxn> latestInward = inwardRepository.findTop5ByOrderByDateTimeDesc();
         List<InventoryOutwardTxn> latestOutward = outwardRepository.findAllByOrderByDateTimeDesc();
-        List<InventoryMaterialMaster> materials = materialRepository.findAll();
+        List<InventoryMaterialMaster> materials = materialRepository.findByIsActiveTrue();
 
         System.out.println("[InventoryDashboard] latestInward size=" + (latestInward != null ? latestInward.size() : 0));
         System.out.println("[InventoryDashboard] latestOutward size=" + (latestOutward != null ? latestOutward.size() : 0));
@@ -146,6 +146,10 @@ public class InventoryService {
     public void createOutward(InventoryOutwardRequest request) {
         InventoryMaterialMaster material = materialRepository.findById(request.getMaterialId())
                 .orElseThrow(() -> new IllegalArgumentException("Material not found"));
+
+        if (Boolean.FALSE.equals(material.getIsActive())) {
+            throw new IllegalArgumentException("Material is inactive.");
+        }
 
         int currentQty = material.getQuantity() == null ? 0 : material.getQuantity();
         int requestedQty = request.getQuantity() == null ? 0 : request.getQuantity();
@@ -283,6 +287,10 @@ public class InventoryService {
         InventoryMaterialMaster newMaterial = materialRepository.findById(request.getMaterialId())
                 .orElseThrow(() -> new IllegalArgumentException("Material not found"));
 
+        if (Boolean.FALSE.equals(newMaterial.getIsActive())) {
+            throw new IllegalArgumentException("Material is inactive.");
+        }
+
         int available = newMaterial.getQuantity() == null ? 0 : newMaterial.getQuantity();
         if (available < newQty) {
             throw new IllegalStateException("Insufficient stock");
@@ -309,6 +317,32 @@ public class InventoryService {
         materialRepository.save(material);
 
         outwardRepository.delete(existing);
+    }
+
+    @Transactional
+    public void deleteMaterial(Long id) {
+        InventoryMaterialMaster material = materialRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Material not found"));
+
+        if (Boolean.FALSE.equals(material.getIsActive())) {
+            return; // already inactive, treat as no-op
+        }
+
+        material.setIsActive(false);
+        materialRepository.save(material);
+    }
+
+    @Transactional
+    public void restoreMaterial(Long id) {
+        InventoryMaterialMaster material = materialRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Material not found"));
+
+        if (Boolean.TRUE.equals(material.getIsActive())) {
+            return; // already active
+        }
+
+        material.setIsActive(true);
+        materialRepository.save(material);
     }
 
     private String generateUniqueRemark(String prefix) {

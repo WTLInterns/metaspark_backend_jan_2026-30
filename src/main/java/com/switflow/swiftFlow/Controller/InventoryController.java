@@ -75,6 +75,34 @@ public class InventoryController {
         }
     }
 
+    @PutMapping("/material/{id}/restore")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
+    public ResponseEntity<?> restoreMaterial(@PathVariable Long id) {
+        try {
+            inventoryService.restoreMaterial(id);
+            return ResponseEntity.noContent().build();
+        } catch (IllegalArgumentException e) {
+            if (e.getMessage() != null && e.getMessage().toLowerCase().contains("not found")) {
+                return buildErrorResponse(HttpStatus.NOT_FOUND, e.getMessage());
+            }
+            return buildErrorResponse(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/material/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
+    public ResponseEntity<?> deleteMaterial(@PathVariable Long id) {
+        try {
+            inventoryService.deleteMaterial(id);
+            return ResponseEntity.noContent().build();
+        } catch (IllegalArgumentException e) {
+            if (e.getMessage() != null && e.getMessage().toLowerCase().contains("not found")) {
+                return buildErrorResponse(HttpStatus.NOT_FOUND, e.getMessage());
+            }
+            return buildErrorResponse(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
     @PostMapping("/inward")
     @PreAuthorize("hasAnyRole('ADMIN','DESIGN','PRODUCTION','MECHANIC','INSPECTION')")
     public ResponseEntity<?> createInward(@RequestBody InventoryInwardRequest request) {
